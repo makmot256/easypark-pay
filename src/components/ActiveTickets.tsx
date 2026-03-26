@@ -62,7 +62,7 @@ const ActiveTickets = () => {
    * Checks the Blink API every 5 seconds for payment status.
    */
   const startPaymentPolling = useCallback(
-    (ticketId: string, paymentHash: string) => {
+    (ticketId: string, paymentRequest: string, paymentHash?: string) => {
       // Clear any existing poll for this ticket
       if (pollingIntervals.current[ticketId]) {
         clearInterval(pollingIntervals.current[ticketId]);
@@ -70,7 +70,7 @@ const ActiveTickets = () => {
 
       const interval = setInterval(async () => {
         try {
-          const result = await checkBlinkPayment(paymentHash);
+          const result = await checkBlinkPayment(paymentRequest);
 
           if (result.isPaid) {
             // Payment confirmed! Update the ticket status
@@ -157,7 +157,7 @@ const ActiveTickets = () => {
       setTickets(getActiveTickets());
 
       // Start polling for payment confirmation
-      startPaymentPolling(ticket.id, result.invoice!.paymentHash);
+      startPaymentPolling(ticket.id, result.invoice!.paymentRequest, result.invoice!.paymentHash);
 
       toast.success("Lightning invoice created! Scan to pay.");
     } catch (err) {
