@@ -1,10 +1,17 @@
 /**
  * BITLOT Active Tickets Panel
  * Shows all active parking tickets with real-time duration tracking,
- * fee calculation, and a "Continue to Payment" checkout flow.
+ * fee calculation, and Lightning payment via Blink wallet.
+ * 
+ * Flow:
+ * 1. User clicks "Continue to Payment"
+ * 2. Edge function creates a real Lightning invoice via Blink API
+ * 3. QR code displays the Lightning invoice for scanning
+ * 4. System polls for payment confirmation
+ * 5. On payment, receipt is generated and confirmation shown
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
   getActiveTickets,
@@ -13,14 +20,27 @@ import {
   updateTicket,
   type ParkingTicket,
 } from "@/lib/ticket-store";
+import { createBlinkInvoice, checkBlinkPayment } from "@/lib/blink-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
+/** Stores invoice data for each ticket being paid */
+interface InvoiceData {
+  paymentRequest: string; // Lightning invoice string (for QR code)
+  paymentHash: string;    // Used to check payment status
+  amountSats: number;
+}
+
 const ActiveTickets = () => {
   const [tickets, setTickets] = useState<ParkingTicket[]>([]);
   const [selectedTicket, setSelectedTicket] = useState<string | null>(null);
+  const [invoices, setInvoices] = useState<Record<string, InvoiceData>>({});
+  const [loadingInvoice, setLoadingInvoice] = useState<string | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<Record<string, string>>({});
+
+  // Ref to hold polling interval IDs so we can clean them up
+  const pollingIntervals = useRef<Record<string, NodeJS.Timeout>>({});
 
   /** Refresh active tickets every second for real-time duration updates */
   useEffect(() => {
@@ -30,63 +50,124 @@ const ActiveTickets = () => {
     return () => clearInterval(interval);
   }, []);
 
-  /** Initiate checkout — calculate fees and show payment QR */
-  const handleCheckout = (ticket: ParkingTicket) => {
+  /** Clean up all polling intervals on unmount */
+  useEffect(() => {
+    return () => {
+      Object.values(pollingIntervals.current).forEach(clearInterval);
+    };
+  }, []);
+
+  /**
+   * Start polling for payment confirmation.
+   * Checks the Blink API every 5 seconds for payment status.
+   */
+  const startPaymentPolling = useCallback(
+    (ticketId: string, paymentHash: string) => {
+      // Clear any existing poll for this ticket
+      if (pollingIntervals.current[ticketId]) {
+        clearInterval(pollingIntervals.current[ticketId]);
+      }
+
+      const interval = setInterval(async () => {
+        try {
+          const result = await checkBlinkPayment(paymentHash);
+
+          if (result.isPaid) {
+            // Payment confirmed! Update the ticket status
+            clearInterval(pollingIntervals.current[ticketId]);
+            delete pollingIntervals.current[ticketId];
+
+            updateTicket(ticketId, {
+              status: "paid",
+              paymentHash,
+            });
+
+            setPaymentStatus((prev) => ({ ...prev, [ticketId]: "paid" }));
+            toast.success("⚡ Payment confirmed! Receipt sent.");
+
+            // Clean up after showing confirmation
+            setTimeout(() => {
+              setSelectedTicket(null);
+              setTickets(getActiveTickets());
+              setInvoices((prev) => {
+                const copy = { ...prev };
+                delete copy[ticketId];
+                return copy;
+              });
+              setPaymentStatus((prev) => {
+                const copy = { ...prev };
+                delete copy[ticketId];
+                return copy;
+              });
+            }, 3000);
+          }
+        } catch (err) {
+          console.error("Payment poll error:", err);
+        }
+      }, 5000); // Poll every 5 seconds
+
+      pollingIntervals.current[ticketId] = interval;
+    },
+    []
+  );
+
+  /**
+   * Initiate checkout:
+   * 1. Calculate the fee based on parking duration
+   * 2. Convert UGX to sats
+   * 3. Call the edge function to create a real Lightning invoice
+   * 4. Display the QR code and start polling for payment
+   */
+  const handleCheckout = async (ticket: ParkingTicket) => {
     const { amountUGX } = calculateFee(ticket.createdAt);
     const amountSats = ugxToSats(amountUGX);
 
-    // Update ticket with calculated amounts and set to pending
-    updateTicket(ticket.id, {
-      status: "pending_payment",
-      amountUGX,
-      amountSats,
-      checkedOutAt: new Date().toISOString(),
-    });
+    setLoadingInvoice(ticket.id);
 
-    setSelectedTicket(ticket.id);
-    setTickets(getActiveTickets());
-  };
+    try {
+      // Call the Blink API edge function to create a Lightning invoice
+      const result = await createBlinkInvoice(
+        amountSats,
+        `BITLOT Parking: ${ticket.numberPlate} - ${ticket.id}`
+      );
 
-  /**
-   * Simulate payment confirmation.
-   * In production, this would poll the Blink wallet API for invoice status.
-   */
-  const handleConfirmPayment = (ticket: ParkingTicket) => {
-    setPaymentStatus((prev) => ({ ...prev, [ticket.id]: "confirming" }));
+      if (!result.success || !result.invoice) {
+        throw new Error(result.error || "Failed to create invoice");
+      }
 
-    // Simulate payment verification delay
-    setTimeout(() => {
+      // Store invoice data for this ticket
+      setInvoices((prev) => ({
+        ...prev,
+        [ticket.id]: {
+          paymentRequest: result.invoice!.paymentRequest,
+          paymentHash: result.invoice!.paymentHash,
+          amountSats: result.invoice!.satoshis,
+        },
+      }));
+
+      // Update ticket with calculated amounts
       updateTicket(ticket.id, {
-        status: "paid",
-        paymentHash: `lnbc${Date.now()}`, // Simulated payment hash
+        status: "pending_payment",
+        amountUGX,
+        amountSats,
+        checkedOutAt: new Date().toISOString(),
       });
 
-      setPaymentStatus((prev) => ({ ...prev, [ticket.id]: "paid" }));
-      toast.success(`Payment confirmed for ${ticket.numberPlate}! Receipt sent.`);
+      setSelectedTicket(ticket.id);
+      setTickets(getActiveTickets());
 
-      // Refresh tickets list
-      setTimeout(() => {
-        setSelectedTicket(null);
-        setTickets(getActiveTickets());
-        setPaymentStatus((prev) => {
-          const copy = { ...prev };
-          delete copy[ticket.id];
-          return copy;
-        });
-      }, 2000);
-    }, 3000);
-  };
+      // Start polling for payment confirmation
+      startPaymentPolling(ticket.id, result.invoice!.paymentHash);
 
-  /**
-   * Build a Blink wallet Lightning invoice URL.
-   * Format: bitcoin:?lightning=lnbc...
-   * In production, you would call the Blink API to create a real invoice.
-   */
-  const buildBlinkInvoice = (ticket: ParkingTicket): string => {
-    const { amountUGX } = calculateFee(ticket.createdAt);
-    const sats = ugxToSats(amountUGX);
-    // Simulated Lightning invoice — in production, use Blink's createInvoice API
-    return `lightning:lnbc${sats}sat1bitlot${ticket.id.toLowerCase()}`;
+      toast.success("Lightning invoice created! Scan to pay.");
+    } catch (err) {
+      console.error("Invoice creation error:", err);
+      toast.error(
+        `Failed to create invoice: ${err instanceof Error ? err.message : "Unknown error"}`
+      );
+    } finally {
+      setLoadingInvoice(null);
+    }
   };
 
   if (tickets.length === 0) {
@@ -113,7 +194,9 @@ const ActiveTickets = () => {
         const { hours, minutes, amountUGX } = calculateFee(ticket.createdAt);
         const amountSats = ugxToSats(amountUGX);
         const isSelected = selectedTicket === ticket.id;
+        const invoice = invoices[ticket.id];
         const pStatus = paymentStatus[ticket.id];
+        const isLoading = loadingInvoice === ticket.id;
 
         return (
           <Card
@@ -137,7 +220,7 @@ const ActiveTickets = () => {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              {/* Ticket details row */}
+              {/* Ticket details */}
               <div className="grid grid-cols-2 gap-2 text-sm font-mono">
                 <div>
                   <span className="text-muted-foreground text-xs">PLATE</span>
@@ -149,7 +232,7 @@ const ActiveTickets = () => {
                 </div>
               </div>
 
-              {/* Duration and cost display — updates in real-time */}
+              {/* Real-time duration and cost display */}
               <div className="bg-secondary rounded-lg p-3 grid grid-cols-3 gap-2 text-center">
                 <div>
                   <span className="text-xs text-muted-foreground">DURATION</span>
@@ -176,57 +259,75 @@ const ActiveTickets = () => {
                 <Button
                   onClick={() => handleCheckout(ticket)}
                   className="w-full font-bold"
+                  disabled={isLoading}
                 >
-                  Continue to Payment →
+                  {isLoading ? (
+                    <span className="flex items-center gap-2">
+                      <span className="animate-spin">⚡</span> Creating Invoice...
+                    </span>
+                  ) : (
+                    "Continue to Payment →"
+                  )}
                 </Button>
               ) : (
                 <div className="space-y-4">
-                  {/* Lightning invoice QR code from Blink wallet */}
-                  <div className="flex flex-col items-center space-y-3">
-                    <p className="text-sm text-muted-foreground text-center">
-                      Scan with your Lightning wallet to pay{" "}
-                      <span className="text-primary font-bold">
-                        {amountSats.toLocaleString()} sats
-                      </span>
-                    </p>
-                    <div className="bg-foreground p-4 rounded-lg">
-                      <QRCodeSVG
-                        value={buildBlinkInvoice(ticket)}
-                        size={180}
-                        bgColor="#f5f0d0"
-                        fgColor="#1a1408"
-                        level="M"
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground font-mono break-all text-center px-4">
-                      {buildBlinkInvoice(ticket)}
-                    </p>
-                  </div>
-
-                  {/* Payment confirmation */}
-                  {pStatus === "confirming" ? (
-                    <div className="text-center py-3">
-                      <div className="animate-spin text-2xl mb-2">⚡</div>
-                      <p className="text-accent font-mono text-sm">
-                        Confirming payment...
+                  {/* Show real Lightning invoice QR code from Blink */}
+                  {invoice && pStatus !== "paid" && (
+                    <div className="flex flex-col items-center space-y-3">
+                      <p className="text-sm text-muted-foreground text-center">
+                        Scan with your Lightning wallet to pay{" "}
+                        <span className="text-primary font-bold">
+                          {invoice.amountSats.toLocaleString()} sats
+                        </span>
                       </p>
+
+                      {/* QR code containing the real Lightning invoice */}
+                      <div className="bg-foreground p-4 rounded-lg">
+                        <QRCodeSVG
+                          value={invoice.paymentRequest}
+                          size={200}
+                          bgColor="#f5f0d0"
+                          fgColor="#1a1408"
+                          level="M"
+                        />
+                      </div>
+
+                      {/* Show truncated invoice string for copy */}
+                      <div className="w-full">
+                        <button
+                          onClick={async () => {
+                            await navigator.clipboard.writeText(invoice.paymentRequest);
+                            toast.success("Invoice copied to clipboard!");
+                          }}
+                          className="w-full text-xs text-muted-foreground font-mono break-all text-center px-4 py-2 bg-secondary rounded hover:bg-secondary/80 transition-colors cursor-pointer"
+                          title="Click to copy invoice"
+                        >
+                          {invoice.paymentRequest.substring(0, 40)}...
+                          <span className="block text-primary text-[10px] mt-1">
+                            TAP TO COPY FULL INVOICE
+                          </span>
+                        </button>
+                      </div>
+
+                      {/* Polling indicator */}
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="animate-pulse">●</span>
+                        Waiting for payment confirmation...
+                      </div>
                     </div>
-                  ) : pStatus === "paid" ? (
-                    <div className="text-center py-3 bg-success/10 rounded-lg">
-                      <p className="text-2xl mb-1">✅</p>
-                      <p className="text-success font-bold">Payment Confirmed!</p>
+                  )}
+
+                  {/* Payment confirmed state */}
+                  {pStatus === "paid" && (
+                    <div className="text-center py-4 bg-success/10 rounded-lg">
+                      <p className="text-3xl mb-2">✅</p>
+                      <p className="text-success font-bold text-lg">
+                        Payment Confirmed!
+                      </p>
                       <p className="text-xs text-muted-foreground mt-1">
                         Receipt sent to {ticket.phoneNumber}
                       </p>
                     </div>
-                  ) : (
-                    <Button
-                      onClick={() => handleConfirmPayment(ticket)}
-                      variant="outline"
-                      className="w-full border-accent text-accent hover:bg-accent hover:text-accent-foreground"
-                    >
-                      ✅ Confirm Payment Received
-                    </Button>
                   )}
                 </div>
               )}
