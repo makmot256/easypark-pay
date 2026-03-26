@@ -23,7 +23,7 @@ const BLINK_API_URL = "https://api.blink.sv/graphql";
 const JSON_HEADERS = { ...corsHeaders, "Content-Type": "application/json" };
 
 type BlinkGraphQLError = { message?: string };
-type BlinkWallet = { id: string; walletCurrency?: string | null; currency?: string | null };
+type BlinkWallet = { id: string; walletCurrency?: string | null };
 
 async function callBlink<T>(
   apiKey: string,
@@ -64,7 +64,6 @@ async function resolveRecipientWalletId(
           wallets {
             id
             walletCurrency
-            currency
           }
         }
       }
