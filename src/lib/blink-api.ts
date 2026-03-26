@@ -18,7 +18,7 @@ interface CreateInvoiceResponse {
 
 interface CheckInvoiceResponse {
   success: boolean;
-  status?: "PENDING" | "PAID" | "EXPIRED";
+  status?: "PENDING" | "PAID";
   isPaid?: boolean;
   error?: string;
 }
@@ -51,16 +51,16 @@ export async function createBlinkInvoice(
 
 /**
  * Check the payment status of a Lightning invoice.
- * @param paymentHash - The payment hash from the created invoice
+ * @param paymentRequest - The payment request from the created invoice
  * @returns Status object with isPaid boolean
  */
 export async function checkBlinkPayment(
-  paymentHash: string
+  paymentRequest: string
 ): Promise<CheckInvoiceResponse> {
   const { data, error } = await supabase.functions.invoke("blink-invoice", {
     body: {
       action: "check_invoice",
-      paymentHash,
+      paymentRequest,
     },
   });
 

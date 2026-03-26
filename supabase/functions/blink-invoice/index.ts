@@ -127,7 +127,7 @@ serve(async (req) => {
     }
 
     const BLINK_WALLET_ID = Deno.env.get("BLINK_WALLET_ID");
-    const { action, amount, paymentHash, memo } = await req.json();
+    const { action, amount, paymentHash, paymentRequest, memo } = await req.json();
 
     if (action === "create_invoice") {
       if (!amount || amount <= 0) {
@@ -140,8 +140,8 @@ serve(async (req) => {
       const recipientWalletId = await resolveRecipientWalletId(BLINK_API_KEY, BLINK_WALLET_ID);
 
       const mutation = `
-        mutation LnInvoiceCreate($input: LnInvoiceCreateOnBehalfOfRecipientInput!) {
-          lnInvoiceCreateOnBehalfOfRecipient(input: $input) {
+        mutation LnInvoiceCreate($input: LnInvoiceCreateInput!) {
+          lnInvoiceCreate(input: $input) {
             invoice {
               paymentHash
               paymentRequest
@@ -157,7 +157,7 @@ serve(async (req) => {
 
       const payload = await callBlink<{
         data?: {
-          lnInvoiceCreateOnBehalfOfRecipient?: {
+          lnInvoiceCreate?: {
             invoice?: {
               paymentHash: string;
               paymentRequest: string;
@@ -169,13 +169,13 @@ serve(async (req) => {
         };
       }>(BLINK_API_KEY, mutation, {
         input: {
-          recipientWalletId,
+          walletId: recipientWalletId,
           amount: Math.round(amount),
           memo: memo || `BITLOT Parking - ${amount} sats`,
         },
       });
 
-      const result = payload.data?.lnInvoiceCreateOnBehalfOfRecipient;
+      const result = payload.data?.lnInvoiceCreate;
       if (!result || result.errors?.length || !result.invoice) {
         const errorMsg = result?.errors?.[0]?.message || "Unknown Blink API error";
         throw new Error(`Blink invoice creation failed: ${errorMsg}`);
@@ -195,9 +195,9 @@ serve(async (req) => {
     }
 
     if (action === "check_invoice") {
-      if (!paymentHash) {
+      if (!paymentRequest) {
         return new Response(
-          JSON.stringify({ success: false, error: "paymentHash is required" }),
+          JSON.stringify({ success: false, error: "paymentRequest is required" }),
           { status: 400, headers: JSON_HEADERS },
         );
       }
@@ -216,12 +216,12 @@ serve(async (req) => {
       const payload = await callBlink<{
         data?: {
           lnInvoicePaymentStatus?: {
-            status?: "PENDING" | "PAID" | "EXPIRED";
+            status?: "PENDING" | "PAID";
             errors?: BlinkGraphQLError[];
           };
         };
       }>(BLINK_API_KEY, query, {
-        input: { paymentHash },
+        input: { paymentRequest },
       });
 
       const result = payload.data?.lnInvoicePaymentStatus;
