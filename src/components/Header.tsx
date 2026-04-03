@@ -15,6 +15,7 @@ const tabs = [
   { id: "active", label: "🅿️ Active Tickets" },
   { id: "status", label: "🔍 Check Status" },
   { id: "history", label: "📋 History" },
+  { id: "assistant", label: "🤖 AI Assistant" },
 ];
 
 const Header = ({ activeTab, onTabChange }: HeaderProps) => {
@@ -25,22 +26,22 @@ const Header = ({ activeTab, onTabChange }: HeaderProps) => {
         <img
           src={bitlotLogo}
           alt="BITLOT Logo"
-          width={56}
-          height={56}
+          width={64}
+          height={64}
           className="rounded-lg"
         />
         <div>
-          <h1 className="text-2xl font-bold text-primary tracking-tight font-mono">
+          <h1 className="text-3xl font-extrabold text-primary tracking-tight font-mono leading-none">
             BITLOT
           </h1>
-          <p className="text-xs text-muted-foreground tracking-widest uppercase">
+          <p className="mt-1 text-sm md:text-base text-foreground/90 font-medium tracking-wide uppercase">
             Secure your Parking Lot
           </p>
         </div>
       </div>
 
       {/* Navigation tabs */}
-      <nav className="container mx-auto px-4 flex gap-1 overflow-x-auto pb-0">
+      <nav className="container mx-auto px-4 flex justify-center gap-1 overflow-x-auto pb-0">
         {tabs.map((tab) => (
           <button
             key={tab.id}

@@ -5,7 +5,7 @@
 /* BITLOT Design System — Yellow/Black Parking POS Theme */
 /* All colors in HSL for Tailwind compatibility */
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
 @layer base {
   :root {
@@ -28,7 +28,7 @@
     --secondary-foreground: 45 100% 90%;
 
     --muted: 40 6% 14%;
-    --muted-foreground: 40 10% 50%;
+    --muted-foreground: 40 10% 62%;
 
     /* Accent: Warm amber */
     --accent: 38 92% 50%;
@@ -67,14 +67,20 @@
     @apply border-border;
   }
 
+  html {
+    /* Slight global typography increase for better readability */
+    font-size: clamp(16px, 0.35vw + 15px, 18px);
+  }
+
   body {
     @apply bg-background text-foreground font-sans;
-    font-family: 'Space Grotesk', sans-serif;
+    font-family: "Space Grotesk", sans-serif;
+    line-height: 1.55;
   }
 
   /* Monospace utility for ticket/code displays */
   .font-mono-ticket {
-    font-family: 'JetBrains Mono', monospace;
+    font-family: "JetBrains Mono", monospace;
   }
 }
 
@@ -92,8 +98,13 @@
 
   /* Pulse animation for active tickets */
   @keyframes pulse-glow {
-    0%, 100% { box-shadow: 0 0 10px hsl(45 96% 55% / 0.2); }
-    50% { box-shadow: 0 0 25px hsl(45 96% 55% / 0.4); }
+    0%,
+    100% {
+      box-shadow: 0 0 10px hsl(45 96% 55% / 0.2);
+    }
+    50% {
+      box-shadow: 0 0 25px hsl(45 96% 55% / 0.4);
+    }
   }
 
   .animate-pulse-glow {
@@ -102,18 +113,27 @@
 
   /* Scan line effect for POS feel */
   @keyframes scan-line {
-    0% { transform: translateY(-100%); }
-    100% { transform: translateY(100%); }
+    0% {
+      transform: translateY(-100%);
+    }
+    100% {
+      transform: translateY(100%);
+    }
   }
 
   .scan-effect::after {
-    content: '';
+    content: "";
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, transparent, hsl(45 96% 55% / 0.6), transparent);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(45 96% 55% / 0.6),
+      transparent
+    );
     animation: scan-line 3s ease-in-out infinite;
   }
 }

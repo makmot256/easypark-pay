@@ -53,7 +53,10 @@ function saveTickets(tickets: ParkingTicket[]): void {
 }
 
 /** Create a new parking ticket */
-export function createTicket(numberPlate: string, phoneNumber: string): ParkingTicket {
+export function createTicket(
+  numberPlate: string,
+  phoneNumber: string,
+): ParkingTicket {
   const ticket: ParkingTicket = {
     id: generateTicketId(),
     numberPlate: numberPlate.toUpperCase().trim(),
@@ -84,7 +87,10 @@ export function findTicketsByPlate(numberPlate: string): ParkingTicket[] {
 }
 
 /** Update a ticket */
-export function updateTicket(id: string, updates: Partial<ParkingTicket>): ParkingTicket | null {
+export function updateTicket(
+  id: string,
+  updates: Partial<ParkingTicket>,
+): ParkingTicket | null {
   const tickets = loadTickets();
   const index = tickets.findIndex((t) => t.id === id);
   if (index === -1) return null;
@@ -101,7 +107,11 @@ export function updateTicket(id: string, updates: Partial<ParkingTicket>): Parki
  * - Each additional hour: 1000 UGX
  * - Maximum: 24 hours
  */
-export function calculateFee(createdAt: string): { hours: number; minutes: number; amountUGX: number } {
+export function calculateFee(createdAt: string): {
+  hours: number;
+  minutes: number;
+  amountUGX: number;
+} {
   const start = new Date(createdAt).getTime();
   const now = Date.now();
   const diffMs = now - start;
@@ -124,20 +134,23 @@ export function calculateFee(createdAt: string): { hours: number; minutes: numbe
 }
 
 /**
- * Convert UGX to satoshis.
- * Using approximate rate: 1 BTC ≈ 250,000,000 UGX
- * 1 sat = 2.5 UGX → 1 UGX = 0.4 sats
- * This is a simplified conversion; in production, use a live rate API.
+ * Convert parking fee to sats using fixed tier pricing.
+ * - 0-1 hour: 1 sat
+ * - Each additional billed hour: +0.5 sats
  */
 export function ugxToSats(ugx: number): number {
-  const SATS_PER_UGX = 0.4; // Approximate conversion rate
-  return Math.ceil(ugx * SATS_PER_UGX);
+  if (ugx <= 2000) {
+    return 1;
+  }
+
+  const extraHours = (ugx - 2000) / 1000;
+  return 1 + extraHours * 0.5;
 }
 
 /** Get all active (non-paid, non-expired) tickets */
 export function getActiveTickets(): ParkingTicket[] {
   return loadTickets().filter(
-    (t) => t.status === "active" || t.status === "pending_payment"
+    (t) => t.status === "active" || t.status === "pending_payment",
   );
 }
 

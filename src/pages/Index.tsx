@@ -10,6 +10,7 @@ import TicketCreator from "@/components/TicketCreator";
 import ActiveTickets from "@/components/ActiveTickets";
 import StatusChecker from "@/components/StatusChecker";
 import TicketHistory from "@/components/TicketHistory";
+import AIAssistant from "@/components/AIAssistant";
 
 const Index = () => {
   /** Currently active navigation tab */
@@ -26,6 +27,8 @@ const Index = () => {
         return <StatusChecker />;
       case "history":
         return <TicketHistory />;
+      case "assistant":
+        return <AIAssistant />;
       default:
         return <TicketCreator />;
     }
@@ -43,6 +46,9 @@ const Index = () => {
         <footer className="mt-8 py-4 border-t border-border text-center">
           <p className="text-xs text-muted-foreground font-mono">
             Rates: 0-1hr = 2,000 UGX | Extra hour = 1,000 UGX | Max 24hrs
+          </p>
+          <p className="text-xs text-muted-foreground font-mono mt-1">
+            SATS: 0-1hr = 1 sat | Extra hour = 0.5 sats
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             ⚡ Powered by Bitcoin Lightning via Blink Wallet
